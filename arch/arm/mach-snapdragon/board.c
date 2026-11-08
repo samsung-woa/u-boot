@@ -20,6 +20,7 @@
 #include <dm/read.h>
 #include <power/regulator.h>
 #include <env.h>
+#include <efi_loader.h>
 #include <fdt_support.h>
 #include <init.h>
 #include <linux/arm-smccc.h>
@@ -39,6 +40,7 @@
 #include <dm/ofnode.h>
 #include <mapmem.h>
 #include <linux/delay.h>
+#include <linux/ioport.h>
 
 #include "qcom-priv.h"
 #include "a71_acpi_reloc.h"
@@ -57,6 +59,77 @@ static struct {
 } prevbl_ddr_banks[CONFIG_NR_DRAM_BANKS] __section(".data") = { 0 };
 
 #define A71_ACPI_FILENAME "acpi.bin"
+
+#if CONFIG_IS_ENABLED(EFI_LOADER)
+/* Keep the fixed firmware/display regions reserved after ExitBootServices. */
+static bool a71_fixed_reservation(ofnode node, uint index, struct resource *res)
+{
+	if (!ofnode_is_enabled(node) || ofnode_read_bool(node, "reusable"))
+		return false;
+
+	return !ofnode_read_resource(node, index, res) &&
+		res->end >= res->start && resource_size(res);
+}
+
+void efi_add_known_memory(void)
+{
+	struct resource res;
+	efi_status_t ret;
+	ofnode parent, node;
+	uint index;
+
+	if (!of_machine_is_compatible("samsung,a715f"))
+		return;
+	parent = ofnode_path("/reserved-memory");
+	ofnode_for_each_subnode(node, parent) {
+		for (index = 0; a71_fixed_reservation(node, index, &res); index++) {
+			ret = efi_add_memory_map(res.start, resource_size(&res),
+						 EFI_RESERVED_MEMORY_TYPE);
+			if (ret != EFI_SUCCESS)
+				printf("A71 EFI: reservation at 0x%llx failed: 0x%lx\n",
+				       (unsigned long long)res.start, ret);
+		}
+	}
+}
+
+enum efi_memory_type efi_board_lmb_memory_type(phys_addr_t addr,
+					      phys_size_t size,
+					      enum efi_memory_type default_type)
+{
+	struct resource res;
+	ofnode parent, node;
+	uint index;
+	u64 end;
+
+	if (!of_machine_is_compatible("samsung,a715f") || !size ||
+	    size - 1 > ~(u64)0 - addr)
+		return default_type;
+	end = addr + size - 1;
+	parent = ofnode_path("/reserved-memory");
+	ofnode_for_each_subnode(node, parent) {
+		for (index = 0; a71_fixed_reservation(node, index, &res); index++) {
+			/* Only fixed-region requests are permanent. In particular,
+			 * adding a whole DRAM bank must still make ordinary RAM usable.
+			 */
+			if (addr >= res.start && end <= res.end)
+				return EFI_RESERVED_MEMORY_TYPE;
+		}
+	}
+
+	return default_type;
+}
+
+enum efi_memory_type efi_acpi_blob_memory_type(void)
+{
+	/* The imported A71 image contains FACS and shares its first page
+	 * with other tables. Preserve the whole image as writable ACPI NVS.
+	 */
+	if (of_machine_is_compatible("samsung,a715f"))
+		return EFI_ACPI_MEMORY_NVS;
+
+	return EFI_ACPI_RECLAIM_MEMORY;
+}
+#endif
 
 
 /* Samsung A71 Y771: AVDD enable=TLMM56, DVDD enable=PM6150 GPIO4.
@@ -117,6 +190,7 @@ static void a71_load_acpi(void)
 	char cmd[128];
 	ulong loadaddr;
 	ulong size;
+	ulong blob_size;
 	u64 old_base;
 	int ret;
 	void *blob;
@@ -163,11 +237,21 @@ static void a71_load_acpi(void)
 		return;
 	}
 
-	blob = bloblist_ensure(BLOBLISTT_ACPI_TABLES,
-			    size);
-
-	if (!blob) {
-		printf("A71 ACPI: bloblist_ensure() failed\n");
+	/* Isolate NVS from neighbouring SMBIOS/boot-services blobs at page
+	 * granularity. This also aligns the FACS at image offset 0x80.
+	 */
+	/* Include the tail padding in the record itself. Otherwise bloblist
+	 * traversal can interpret the allocation's page padding as a record.
+	 */
+	blob_size = ALIGN(size, EFI_PAGE_SIZE);
+	if (blob_size < size || blob_size > bloblist_get_total_size()) {
+		printf("A71 ACPI: aligned image exceeds bloblist capacity\n");
+		return;
+	}
+	ret = bloblist_ensure_size(BLOBLISTT_ACPI_TABLES, blob_size,
+				  EFI_PAGE_SHIFT, &blob);
+	if (ret || !IS_ALIGNED(map_to_sysmem(blob), EFI_PAGE_SIZE)) {
+		printf("A71 ACPI: aligned blob allocation failed: %d\n", ret);
 		return;
 	}
 

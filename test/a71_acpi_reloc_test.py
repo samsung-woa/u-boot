@@ -111,8 +111,24 @@ class RelocationTests(unittest.TestCase):
         relocated = bytes(b)
         self.assertEqual(self.run_image(b, new_base), (0, new_base))
         self.assertEqual(bytes(b), relocated)
-        self.assertEqual(self.run_image(b, old_base), (0, new_base))
-        self.assertEqual(bytes(b), before)
+        # Old full images used an unaligned bloblist payload. They remain
+        # valid inputs, but must never be relocated back to a bad FACS address.
+        facs = [p for o, p in zip((36, 40, 132, 140), fptrs)
+                if o in (36, 132) and p]
+        if any(p % 64 for p in facs):
+            self.reject_unchanged(b, old_base)
+        else:
+            self.assertEqual(self.run_image(b, old_base), (0, new_base))
+            self.assertEqual(bytes(b), before)
+
+    def test_facs_physical_alignment(self):
+        self.reject_unchanged(image(), 0x90000020)
+        self.reject_unchanged(image(), BASE)
+        b = image()
+        self.assertEqual(self.run_image(b, 0x90000040), (0, BASE))
+        xoff = r64(b, 24) - 0x90000040
+        foff = r64(b, xoff + 36) - 0x90000040
+        self.assertEqual(r64(b, foff + 132) % 64, 0)
 
     def test_single_root(self):
         for base in (0x90000000, 0x200000000):

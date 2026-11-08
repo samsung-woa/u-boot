@@ -705,6 +705,10 @@ efi_status_t efi_initrd_deregister(void);
  * Return: 0 if OK, -ENOMEM if no memory is available for the tables
  */
 efi_status_t efi_acpi_register(void);
+
+/* Boards importing writable ACPI state may require ACPI NVS for the blob. */
+enum efi_memory_type efi_acpi_blob_memory_type(void);
+
 /**
  * efi_smbios_register() - write out SMBIOS tables
  *
@@ -1269,6 +1273,11 @@ efi_status_t efi_disk_get_device_name(const efi_handle_t handle, char *buf, int 
  * This function may be overridden for architectures specific purposes.
  */
 void efi_add_known_memory(void);
+
+/* Preserve board-owned memory when LMB updates the EFI map. */
+enum efi_memory_type efi_board_lmb_memory_type(phys_addr_t addr,
+					      phys_size_t size,
+					      enum efi_memory_type default_type);
 
 /**
  * efi_map_update_notify() - notify EFI of memory map changes

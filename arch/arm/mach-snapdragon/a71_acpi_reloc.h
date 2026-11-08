@@ -108,6 +108,8 @@ static int a71_acpi_validate_root(const u8 *b, size_t size, size_t xoff,
 				    a71_ar32(b + target + 4) < 64 ||
 				    a71_ar32(b + target + 4) > size - target)
 					return -EINVAL;
+				if (new_base && ((new_base + target) & 63))
+					return -EINVAL;
 			} else if (!a71_atable(b, size, target) || memcmp(b + target, "DSDT", 4)) {
 				return -EINVAL;
 			}

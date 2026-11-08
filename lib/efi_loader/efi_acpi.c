@@ -18,6 +18,11 @@ DECLARE_GLOBAL_DATA_PTR;
 
 static const efi_guid_t acpi_guid = EFI_ACPI_TABLE_GUID;
 
+enum efi_memory_type __weak efi_acpi_blob_memory_type(void)
+{
+	return EFI_ACPI_RECLAIM_MEMORY;
+}
+
 /*
  * Install the ACPI table as a configuration table.
  *
@@ -28,13 +33,6 @@ efi_status_t efi_acpi_register(void)
 	ulong addr, start, end;
 	efi_status_t ret;
 
-	/*
-	 * The bloblist is already marked reserved. For now, we don't bother
-	 * marking it with EFI_ACPI_RECLAIM_MEMORY since we would need to cut a
-	 * hole in the EFI_BOOT_SERVICES_CODE region added by
-	 * add_u_boot_and_runtime(). At some point that function could create a
-	 * more detailed map.
-	 */
 	if (IS_ENABLED(CONFIG_BLOBLIST_TABLES)) {
 		int size;
 		void *tab = bloblist_get_blob(BLOBLISTT_ACPI_TABLES, &size);
@@ -44,7 +42,7 @@ efi_status_t efi_acpi_register(void)
 		addr = map_to_sysmem(tab);
 
 		ret = efi_add_memory_map(addr, size,
-					 EFI_ACPI_RECLAIM_MEMORY);
+					 efi_acpi_blob_memory_type());
 		if (ret != EFI_SUCCESS)
 			return ret;
 	} else {

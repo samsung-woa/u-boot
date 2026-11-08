@@ -38,6 +38,11 @@
 	reg = <0x0 0x9e400000 0x0 0x2400000>;
 };
 
+/* Samsung's DFPS buffer follows the continuous-splash allocation. */
+&dfps_data_mem {
+	reg = <0x0 0x9e300000 0x0 0x100000>;
+};
+
 /* Limit CPU clock to 2.2 GHz */
 &cpu6_opp14 {
 	status = "disabled";
@@ -109,6 +114,12 @@
 	};
 
 	reserved-memory {
+		/* Complete Samsung's XBL/AOP range without overlapping cmd-db. */
+		aop_firmware_mem: memory@85f40000 {
+			reg = <0x0 0x85f40000 0x0 0xbf000>;
+			no-map;
+		};
+
 		camera_mem: memory@8cb00000 {
 			reg = <0x0 0x8cb00000 0x0 0x500000>;
 			no-map;
@@ -160,7 +171,13 @@
 		};
 
 		framebuffer_region@9c000000 {
-			reg = <0x0 0x9c000000 0x0 (1080 * 2400 * 4)>;
+			/* The visible GOP surface keeps its original size. */
+			reg = <0x0 0x9c000000 0x0 0x1800000>;
+			no-map;
+		};
+
+		ss_plog_mem: memory@a1100000 {
+			reg = <0x0 0xa1100000 0x0 0x200000>;
 			no-map;
 		};
 
@@ -171,6 +188,16 @@
 			record-size = <0x40000>;
 			pmsg-size = <0x40000>;
 			console-size = <0x40000>;
+		};
+
+		sec_debug_mem: memory@a1400000 {
+			reg = <0x0 0xa1400000 0x0 0x800000>;
+			no-map;
+		};
+
+		sec_debug_autocomment_mem: memory@a1c00000 {
+			reg = <0x0 0xa1c00000 0x0 0x1000>;
+			no-map;
 		};
 
 		sec_cdsp_mem: memory@a4000000 {
@@ -185,6 +212,34 @@
 
 			qcom,client-id = <1>;
 			qcom,vmid = <15>;
+		};
+
+		/* Fixed Samsung firmware/security allocations. Android-only
+		 * dynamic CMA/camera pools are deliberately not reproduced.
+		 */
+		tima_mem: memory@b0100000 {
+			reg = <0x0 0xb0100000 0x0 0x100000>;
+			no-map;
+		};
+
+		rkp_mem: memory@b0200000 {
+			reg = <0x0 0xb0200000 0x0 0x200000>;
+			no-map;
+		};
+
+		uh_heap_mem: memory@b0400000 {
+			reg = <0x0 0xb0400000 0x0 0x1400000>;
+			no-map;
+		};
+
+		modem_shared_mem: memory@ba000000 {
+			reg = <0x0 0xba000000 0x0 0x6000000>;
+			no-map;
+		};
+
+		sec_debug_rdx_mem: memory@100000000 {
+			reg = <0x1 0x0 0x0 0x5900000>;
+			no-map;
 		};
 	};
 };

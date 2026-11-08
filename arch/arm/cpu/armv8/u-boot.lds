@@ -164,6 +164,12 @@ SECTIONS
 		__end_data = .;
 	}
 
+	/* BSS may reuse consumed relocations, but never the running image. */
+	ASSERT(__bss_start >= __image_copy_end,
+	       "BSS overlaps U-Boot code/data; use a GNU-compatible OVERLAY linker")
+	ASSERT((__bss_start & 7) == 0 && (__bss_end & 7) == 0,
+	       "BSS bounds must be 8-byte aligned")
+
 	/DISCARD/ : { *(.dynsym) }
 	/DISCARD/ : { *(.dynstr*) }
 	/DISCARD/ : { *(.dynamic*) }

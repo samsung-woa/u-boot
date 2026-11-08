@@ -930,21 +930,29 @@ int efi_memory_init(void)
 	return 0;
 }
 
+enum efi_memory_type __weak efi_board_lmb_memory_type(phys_addr_t addr,
+						     phys_size_t size,
+						     enum efi_memory_type default_type)
+{
+	return default_type;
+}
+
 int efi_map_update_notify(phys_addr_t addr, phys_size_t size,
 			  enum lmb_map_op op)
 {
 	u64 efi_addr;
 	u64 pages;
 	efi_status_t status;
+	enum efi_memory_type memory_type;
 
 	efi_addr = (uintptr_t)map_sysmem(addr, 0);
 	pages = efi_size_in_pages(size + (efi_addr & EFI_PAGE_MASK));
 	efi_addr &= ~EFI_PAGE_MASK;
 
-	status = efi_update_memory_map(efi_addr, pages,
-				       op == LMB_MAP_OP_RESERVE ?
-				       EFI_BOOT_SERVICES_DATA :
-				       EFI_CONVENTIONAL_MEMORY,
+	memory_type = op == LMB_MAP_OP_RESERVE ?
+		EFI_BOOT_SERVICES_DATA : EFI_CONVENTIONAL_MEMORY;
+	memory_type = efi_board_lmb_memory_type(addr, size, memory_type);
+	status = efi_update_memory_map(efi_addr, pages, memory_type,
 				       false, false);
 	if (status != EFI_SUCCESS) {
 		log_err("LMB Map notify failure %lu\n",
