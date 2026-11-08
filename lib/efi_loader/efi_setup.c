@@ -237,6 +237,9 @@ efi_status_t efi_init_obj_list(void)
 {
 	efi_status_t ret = EFI_SUCCESS;
 
+	printf("A71 EFI TRACE 1: efi_init_obj_list state=%lu\n",
+	       efi_obj_list_initialized);
+
 	/* Initialize only once, but start every time if correctly initialized*/
 	if (efi_obj_list_initialized == OBJ_LIST_INITIALIZED)
 		return efi_start_obj_list();
@@ -349,27 +352,42 @@ efi_status_t efi_init_obj_list(void)
 			goto out;
 	}
 
+	printf("A71 EFI TRACE 2: CONFIG_VIDEO=%d\n",
+	       IS_ENABLED(CONFIG_VIDEO));
 	if (IS_ENABLED(CONFIG_VIDEO)) {
+		printf("A71 EFI TRACE 3: BEFORE efi_gop_register\n");
 		ret = efi_gop_register();
+		printf("A71 EFI TRACE 4: AFTER efi_gop_register ret=0x%lx\n",
+		       ret);
 		if (ret != EFI_SUCCESS)
 			goto out;
-	}
+	} else {
+		printf("A71 EFI TRACE 2b: CONFIG_VIDEO disabled\n");
+ 	}
 	if (IS_ENABLED(CONFIG_NETDEVICES)) {
+		printf("A71 EFI: before efi_net_register\n");
 		ret = efi_net_register(eth_get_dev());
+		printf("A71 EFI: after efi_net_register ret=0x%lx\n", ret);
 		if (ret != EFI_SUCCESS)
 			goto out;
 	}
 	if (IS_ENABLED(CONFIG_ACPI)) {
+		printf("A71 EFI: before efi_acpi_register\n");
 		ret = efi_acpi_register();
+		printf("A71 EFI: after efi_acpi_register ret=0x%lx\n", ret);
 		if (ret != EFI_SUCCESS)
 			goto out;
 	}
 	if (IS_ENABLED(CONFIG_SMBIOS)) {
+		printf("A71 EFI: before efi_smbios_register\n");
 		ret = efi_smbios_register();
+		printf("A71 EFI: after efi_smbios_register ret=0x%lx\n", ret);
 		if (ret != EFI_SUCCESS)
 			goto out;
 	}
+	printf("A71 EFI: before efi_watchdog_register\n");
 	ret = efi_watchdog_register();
+	printf("A71 EFI: after efi_watchdog_register ret=0x%lx\n", ret);
 	if (ret != EFI_SUCCESS)
 		goto out;
 

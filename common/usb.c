@@ -1197,10 +1197,17 @@ int usb_select_config(struct usb_device *dev)
 	err = usb_get_configuration_len(dev, 0);
 	if (err >= 0) {
 		tmpbuf = (unsigned char *)malloc_cache_aligned(err);
-		if (!tmpbuf)
+		if (!tmpbuf) {
 			err = -ENOMEM;
-		else
+		} else {
+			/*
+			 * PNY 32GB USB 2.0 flash drives seem to require an
+			 * additional delay before getting the next descriptor.
+			 */
+			mdelay(1);
+
 			err = usb_get_configuration_no(dev, 0, tmpbuf, err);
+		}
 	}
 	if (err < 0) {
 		printf("usb_new_device: Cannot read configuration, " \

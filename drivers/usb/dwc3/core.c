@@ -807,6 +807,11 @@ static void dwc3_core_exit_mode(struct dwc3 *dwc)
 	 * This enables the phy to enter idle and then, if enabled, suspend.
 	 */
 	dwc3_set_mode(dwc, DWC3_GCTL_PRTCAP_DEVICE);
+#if CONFIG_IS_ENABLED(DM_USB)
+	/* A71 KDNET handoff must never restart DMA during buffer cleanup. */
+	if (dwc->dev && dev_read_bool(dwc->dev, "u-boot,a71-kdnet-handoff"))
+		return;
+#endif
 	dwc3_gadget_run(dwc);
 }
 

@@ -19,6 +19,13 @@ DECLARE_GLOBAL_DATA_PTR;
 
 static const efi_guid_t efi_gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 
+static const efi_guid_t efi_console_out_device_guid = {
+	0xd3b36f2c, 0xd551, 0x11d4,
+	{ 0x9a, 0x46, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d }
+};
+
+static unsigned int a71_gop_blt_prints;
+
 /**
  * struct efi_gop_obj - graphical output protocol object
  *
@@ -47,6 +54,8 @@ static efi_status_t EFIAPI gop_query_mode(struct efi_gop *this, u32 mode_number,
 {
 	struct efi_gop_obj *gopobj;
 	efi_status_t ret = EFI_SUCCESS;
+
+        printf("A71 GOP: QueryMode(%u)\n", mode_number);
 
 	EFI_ENTRY("%p, %x, %p, %p", this, mode_number, size_of_info, info);
 
@@ -382,6 +391,10 @@ static efi_status_t EFIAPI gop_set_mode(struct efi_gop *this, u32 mode_number)
 		goto out;
 	}
 	gopobj = container_of(this, struct efi_gop_obj, ops);
+	printf("A71 GOP: SetMode(%u), fb_base=0x%llx fb_size=0x%llx\n",
+	       mode_number,
+	       (unsigned long long)gopobj->mode.fb_base,
+	       (unsigned long long)gopobj->mode.fb_size);
 	vid_bpp = gop_get_bpp(this);
 	ret = gop_blt_video_fill(this, &buffer, EFI_BLT_VIDEO_FILL, 0, 0, 0, 0,
 				 gopobj->info.width, gopobj->info.height, 0,
@@ -415,6 +428,13 @@ static efi_status_t EFIAPI gop_blt(struct efi_gop *this,
 				   efi_uintn_t dy, efi_uintn_t width,
 				   efi_uintn_t height, efi_uintn_t delta)
 {
+	if (a71_gop_blt_prints < 16) {
+		printf("A71 GOP: Blt(op=%u sx=%u sy=%u dx=%u dy=%u "
+		       "w=%u h=%u delta=%u)\n",
+		       operation, sx, sy, dx, dy, width, height, delta);
+		a71_gop_blt_prints++;
+	}
+
 	efi_status_t ret = EFI_INVALID_PARAMETER;
 	efi_uintn_t vid_bpp;
 
@@ -472,6 +492,7 @@ static efi_status_t EFIAPI gop_blt(struct efi_gop *this,
  */
 efi_status_t efi_gop_register(void)
 {
+	printf("A71 EFI TRACE 5: ENTER efi_gop_register\n");
 	struct efi_gop_obj *gopobj;
 	u32 bpix, format, col, row;
 	u64 fb_base, fb_size;
@@ -480,11 +501,15 @@ efi_status_t efi_gop_register(void)
 	struct video_priv *priv;
 	struct video_uc_plat *plat;
 
+	printf("A71 EFI TRACE 6: calling uclass_first_device_err(UCLASS_VIDEO)\n");
 	/* We only support a single video output device for now */
 	if (uclass_first_device_err(UCLASS_VIDEO, &vdev)) {
-		debug("WARNING: No video device\n");
+		//debug("WARNING: No video device\n");
+		printf("A71 EFI TRACE 7: NO UCLASS_VIDEO device\n");
 		return EFI_SUCCESS;
 	}
+
+	printf("A71 EFI TRACE 8: video device=%s\n", vdev->name);
 
 	priv = dev_get_uclass_priv(vdev);
 	bpix = priv->bpix;
@@ -495,6 +520,10 @@ efi_status_t efi_gop_register(void)
 	plat = dev_get_uclass_plat(vdev);
 	fb_base = IS_ENABLED(CONFIG_VIDEO_COPY) ? plat->copy_base : plat->base;
 	fb_size = plat->size;
+
+	printf("A71 EFI TRACE 9: fb=0x%llx size=0x%llx mode=%ux%u ppsl=%u bpix=%u format=%u\n",
+	       (unsigned long long)fb_base, (unsigned long long)fb_size,
+	       col, row, col, bpix, format);
 
 	switch (bpix) {
 	case VIDEO_BPP16:
@@ -522,6 +551,14 @@ efi_status_t efi_gop_register(void)
 		printf("ERROR: Failure adding GOP protocol\n");
 		return ret;
 	}
+
+/* Also expose GOP on the EFI console-out handle */
+ret = efi_add_protocol(efi_root, &efi_gop_guid, &gopobj->ops);
+if (ret != EFI_SUCCESS) {
+	printf("ERROR: Failure adding GOP to console handle\n");
+	return ret;
+}
+
 	gopobj->ops.query_mode = gop_query_mode;
 	gopobj->ops.set_mode = gop_set_mode;
 	gopobj->ops.blt = gop_blt;
@@ -558,6 +595,12 @@ efi_status_t efi_gop_register(void)
 	gopobj->bpix = bpix;
 	gopobj->fb = map_sysmem(fb_base, fb_size);
 	gopobj->vdev = vdev;
+
+	printf("A71 EFI TRACE 10: GOP READY fb=0x%llx size=0x%llx mode=%ux%u ppsl=%u\n",
+	       (unsigned long long)gopobj->mode.fb_base,
+	       (unsigned long long)gopobj->mode.fb_size,
+	       gopobj->info.width, gopobj->info.height,
+	       gopobj->info.pixels_per_scanline);
 
 	return EFI_SUCCESS;
 }

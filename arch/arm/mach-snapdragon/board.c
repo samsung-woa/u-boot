@@ -32,8 +32,16 @@
 #include <usb.h>
 #include <sort.h>
 #include <time.h>
+#include <bloblist.h>
+#include <command.h>
+#include <linux/string.h>
+#include <asm/gpio.h>
+#include <dm/ofnode.h>
+#include <mapmem.h>
+#include <linux/delay.h>
 
 #include "qcom-priv.h"
+#include "a71_acpi_reloc.h"
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -47,6 +55,136 @@ static struct {
 	phys_addr_t start;
 	phys_size_t size;
 } prevbl_ddr_banks[CONFIG_NR_DRAM_BANKS] __section(".data") = { 0 };
+
+#define A71_ACPI_FILENAME "acpi.bin"
+
+
+/* Samsung A71 Y771: AVDD enable=TLMM56, DVDD enable=PM6150 GPIO4.
+ * Keep both enables asserted across the EFI handoff; Windows controls AVDD.
+ * No direct PMIC register or GENI firmware-configuration writes here.
+ */
+static struct gpio_desc a71_touch_avdd, a71_touch_dvdd;
+
+static void a71_enable_touch_power(void)
+{
+	ofnode node = ofnode_path("/a71-touch-power");
+	int ret, avdd, dvdd;
+
+	if (!ofnode_valid(node)) {
+		printf("A71 touch power: device-tree node missing\n");
+		return;
+	}
+	ret = gpio_request_by_name_nodev(node, "avdd-gpios", 0,
+					&a71_touch_avdd,
+					GPIOD_IS_OUT | GPIOD_IS_OUT_ACTIVE);
+	if (ret) {
+		printf("A71 touch power: AVDD GPIO request failed: %d\n", ret);
+		return;
+	}
+	mdelay(5);
+	ret = gpio_request_by_name_nodev(node, "dvdd-gpios", 0,
+					&a71_touch_dvdd,
+					GPIOD_IS_OUT | GPIOD_IS_OUT_ACTIVE);
+	if (ret) {
+		printf("A71 touch power: DVDD GPIO request failed: %d\n", ret);
+		return;
+	}
+	mdelay(100);
+	avdd = dm_gpio_get_value(&a71_touch_avdd);
+	dvdd = dm_gpio_get_value(&a71_touch_dvdd);
+	printf("A71 touch power: AVDD=%d DVDD=%d (GPIO readback)\n", avdd, dvdd);
+}
+
+
+/* Only the separate KDNET test DT enables this path. */
+static void a71_prepare_kdnet(void)
+{
+	ofnode node = ofnode_path("/soc@0/usb@a6f8800/usb@a600000");
+	struct udevice *dev;
+	int ret;
+
+	if (!ofnode_valid(node) ||
+	    !ofnode_read_bool(node, "u-boot,a71-kdnet-handoff"))
+		return;
+	printf("A71 KDNET test v1: preparing USB2 device-mode handoff\n");
+	ret = uclass_get_device_by_ofnode(UCLASS_USB_GADGET_GENERIC, node, &dev);
+	if (ret)
+		printf("A71 KDNET: USB preparation FAILED: %d\n", ret);
+}
+
+static void a71_load_acpi(void)
+{
+	char cmd[128];
+	ulong loadaddr;
+	ulong size;
+	u64 old_base;
+	int ret;
+	void *blob;
+
+	/*
+	 * board_late_init() has already assigned loadaddr using
+	 * the Qualcomm LMB allocator.
+	 */
+	loadaddr = env_get_hex("loadaddr", 0);
+
+	if (!loadaddr) {
+		printf("A71 ACPI: loadaddr is not set\n");
+		return;
+	}
+
+	snprintf(cmd, sizeof(cmd),
+		 "scsi scan");
+
+	if (run_command(cmd, 0)) {
+		printf("A71 ACPI: SCSI scan failed\n");
+		return;
+	}
+
+	snprintf(cmd, sizeof(cmd),
+		 "fatload scsi 0:20 0x%lx %s",
+		 loadaddr, A71_ACPI_FILENAME);
+
+	if (run_command(cmd, 0)) {
+		printf("A71 ACPI: failed to load %s\n",
+		       A71_ACPI_FILENAME);
+		return;
+	}
+
+	size = env_get_hex("filesize", 0);
+
+	if (!size) {
+		printf("A71 ACPI: filesize is zero\n");
+		return;
+	}
+
+	ret = a71_acpi_relocate((void *)loadaddr, size, 0, &old_base);
+	if (ret) {
+		printf("A71 ACPI: invalid full image: %d\n", ret);
+		return;
+	}
+
+	blob = bloblist_ensure(BLOBLISTT_ACPI_TABLES,
+			    size);
+
+	if (!blob) {
+		printf("A71 ACPI: bloblist_ensure() failed\n");
+		return;
+	}
+
+	memcpy(blob, (void *)loadaddr, size);
+	ret = a71_acpi_relocate(blob, size, map_to_sysmem(blob), &old_base);
+	if (ret) {
+		printf("A71 ACPI: relocation failed: %d\n", ret);
+		bloblist_resize(BLOBLISTT_ACPI_TABLES, 0);
+		return;
+	}
+	printf("A71 ACPI: rebased 0x%llx -> 0x%lx\n",
+	       (unsigned long long)old_base, (ulong)map_to_sysmem(blob));
+
+
+	printf("A71 ACPI: loaded %lu bytes into bloblist @ %p\n",
+	       size, blob);
+}
 
 int dram_init(void)
 {
@@ -567,7 +705,15 @@ int board_late_init(void)
 		       fdt32_to_cpu(fdt_blob->totalsize));
 
 	configure_env();
+
+        if (env_get("board") && !strcmp(env_get("board"), "samsung-a715f")) {
+		a71_enable_touch_power();
+		a71_load_acpi();
+	}
+
 	qcom_late_init();
+	if (env_get("board") && !strcmp(env_get("board"), "samsung-a715f"))
+		a71_prepare_kdnet();
 
 	qcom_show_boot_source();
 	/* Configure the dfu_string for capsule updates */

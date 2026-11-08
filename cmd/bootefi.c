@@ -142,6 +142,9 @@ static int do_bootefi(struct cmd_tbl *cmdtp, int flag, int argc,
 	size_t image_size;
 	int fdt_arg = 2;
 
+	printf("A71 EFI TRACE 0: do_bootefi argc=%d arg1=%s\n",
+	       argc, argc > 1 ? argv[1] : "<none>");
+
 	if (argc < 2)
 		return CMD_RET_USAGE;
 

@@ -58,6 +58,14 @@
 			<34 6>, /* Rev0.6 */
 			<34 7>; /* Rev0.7 */
 
+
+	/* Touch enables from Samsung A71 board data. PMIC pin numbers are 1-based. */
+	a71-touch-power {
+		avdd-gpios = <&tlmm 56 GPIO_ACTIVE_HIGH>;
+		dvdd-gpios = <&pm6150_gpios 4 GPIO_ACTIVE_HIGH>;
+	};
+
+
 	aliases {
 		bluetooth0 = &bluetooth;
 		hsuart0 = &uart3;
@@ -826,4 +834,14 @@
 	vdd-3.3-ch1-supply = <&vreg_l11c_3p3>; // NOTE: downstream does not define any supply for ch1
 	// firmware-name = "qcom/sm7150/a715f/wlanmdsp.mbn";
 	status = "disabled";
+};
+
+/* Separate A71 KDNET test image: reserve the sole connector for debugging. */
+&usb_1 {
+	u-boot,a71-kdnet-handoff;
+};
+
+&usb_1_dwc3 {
+	dr_mode = "peripheral";
+	u-boot,a71-kdnet-handoff;
 };

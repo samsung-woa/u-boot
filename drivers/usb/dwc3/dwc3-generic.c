@@ -30,6 +30,7 @@ struct dwc3_generic_priv {
 	struct dwc3 dwc3;
 	struct phy_bulk phys;
 	struct gpio_desc *ulpi_reset;
+	bool kdnet_handoff;
 };
 
 struct dwc3_generic_host_priv {
@@ -185,14 +186,55 @@ static int dwc3_generic_of_to_plat(struct udevice *dev)
 static int dwc3_generic_peripheral_probe(struct udevice *dev)
 {
 	struct dwc3_generic_priv *priv = dev_get_priv(dev);
+	struct dwc3_generic_plat *plat = dev_get_plat(dev);
+	struct dwc3 *dwc = &priv->dwc3;
+	bool handoff = dev_read_bool(dev, "u-boot,a71-kdnet-handoff");
+	int ret;
+	unsigned int wait;
 
-	return dwc3_generic_probe(dev, priv, USB_DR_MODE_PERIPHERAL);
+	/* This test path is deliberately restricted to the A71 USB2 core. */
+	if (handoff && (plat->base != 0x0a600000 ||
+	    plat->maximum_speed != USB_SPEED_HIGH ||
+	    !device_is_compatible(dev->parent, "qcom,dwc3")))
+		return -EINVAL;
+	ret = dwc3_generic_probe(dev, priv, USB_DR_MODE_PERIPHERAL);
+	if (ret || !handoff)
+		return ret;
+
+	/* Stop the core BEFORE freeing U-Boot event/endpoint DMA buffers.
+	 * Keep external PHY/regulators/clocks alive. Winload's KDNET module
+	 * will reset and own the core; later DM removal must not touch it.
+	 */
+	dwc3_writel(dwc->regs, DWC3_DCTL,
+		    dwc3_readl(dwc->regs, DWC3_DCTL) & ~DWC3_DCTL_RUN_STOP);
+	for (wait = 0; wait < 100000; ++wait) {
+		if (dwc3_readl(dwc->regs, DWC3_DSTS) & DWC3_DSTS_DEVCTRLHLT)
+			break;
+		udelay(1);
+	}
+	if (wait == 100000) {
+		printf("A71 KDNET: USB did not halt; refusing to free DMA buffers\n");
+		return -ETIMEDOUT;
+	}
+	dwc3_remove(dwc);
+	priv->kdnet_handoff = true;
+	printf("A71 KDNET: USB device core quiesced; PHY/clocks retained\n");
+	printf("A71 KDNET: GSNPSID=%08x GCTL=%08x DCTL=%08x\n",
+	       dwc3_readl(dwc->regs, DWC3_GSNPSID),
+	       dwc3_readl(dwc->regs, DWC3_GCTL),
+	       dwc3_readl(dwc->regs, DWC3_DCTL));
+	return 0;
 }
 
 static int dwc3_generic_peripheral_remove(struct udevice *dev)
 {
 	struct dwc3_generic_priv *priv = dev_get_priv(dev);
 
+	if (priv->kdnet_handoff) {
+		/* The OS debug transport may already be using these registers. */
+		unmap_physmem(priv->base, MAP_NOCACHE);
+		return 0;
+	}
 	return dwc3_generic_remove(dev, priv);
 }
 
@@ -682,6 +724,10 @@ int dwc3_glue_remove(struct udevice *dev)
 {
 	struct dwc3_glue_data *glue = dev_get_plat(dev);
 
+	/* A71 KDNET owns the USB power/clock/reset state after handoff. */
+	if (dev_read_bool(dev, "u-boot,a71-kdnet-handoff") &&
+	    device_is_compatible(dev, "qcom,dwc3"))
+		return 0;
 	reset_release_bulk(&glue->resets);
 
 	clk_release_bulk(&glue->clks);
