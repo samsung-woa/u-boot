@@ -753,6 +753,27 @@ static int smbios_write_type4(ulong *current, int handle,
 					      SYSID_SM_PROCESSOR_THREAD_EN, 0);
 #endif
 
+	/* The A715F has no DM CPU provider in this firmware. Supply the real
+	 * SoC identity even with CONFIG_GENERATE_SMBIOS_TABLE_VERBOSE disabled.
+	 * CurrentSpeed stays unknown: one type-4 record cannot describe the
+	 * instantaneous frequencies of both heterogeneous clusters.
+	 */
+	if (of_machine_is_compatible("samsung,a715f")) {
+		t->processor_family = SMBIOS_PROCESSOR_FAMILY_EXT;
+		t->processor_family2 = SMBIOS_PROCESSOR_FAMILY_ARMV8;
+		t->processor_type = SMBIOS_PROCESSOR_TYPE_CENTRAL;
+		t->processor_manufacturer = smbios_add_string(ctx, "Qualcomm");
+		t->processor_version = smbios_add_string(ctx, "Snapdragon 730 (SM7150)");
+		t->max_speed = 2208;
+		t->current_speed = 0;
+		t->core_count = t->core_enabled = t->thread_count = 8;
+		t->core_count2 = t->core_enabled2 = t->thread_count2 = 8;
+		t->thread_enabled = 8;
+		t->status = 0x40 | SMBIOS_PROCESSOR_STATUS_ENABLED; /* socket populated */
+		t->processor_upgrade = SMBIOS_PROCESSOR_UPGRADE_NONE;
+		t->processor_characteristics = SMBIOS_PROCESSOR_64BIT | SMBIOS_PROCESSOR_MULTICORE;
+	}
+
 	len = t->hdr.length + smbios_string_table_len(ctx);
 	*current += len;
 	unmap_sysmem(t);

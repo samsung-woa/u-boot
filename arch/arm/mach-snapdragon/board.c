@@ -44,6 +44,8 @@
 
 #include "qcom-priv.h"
 #include "a71_acpi_reloc.h"
+#include "a71_cpu_boot.h"
+#include "a71_bluetooth_boot.h"
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -268,6 +270,7 @@ static void a71_load_acpi(void)
 
 	printf("A71 ACPI: loaded %lu bytes into bloblist @ %p\n",
 	       size, blob);
+	a71_cpu_boot_prepare();
 }
 
 int dram_init(void)
@@ -803,6 +806,7 @@ int board_late_init(void)
 	/* Configure the dfu_string for capsule updates */
 	qcom_configure_capsule_updates();
 
+	a71_prepare_bluetooth();
 	return 0;
 }
 
